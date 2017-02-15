@@ -1,23 +1,22 @@
 package main
 
 import (
-	"fmt"
+	"github.com/ogier/pflag"
 	"github.com/vvlad/eintel"
-	"github.com/vvlad/eintel/universe"
 )
 
 func main() {
 
-	universe.Load()
+	pflag.Parse()
 
-	chat := eintel.NewChatLogsWatcher("GOTG_Intel")
-	parser := eintel.NewMessageParser(chat.Messages)
+	chat := eintel.NewChat("GOTG_Intel", "Private Chat (Yolla)")
+	location := eintel.NewLocalWatcher(chat)
+	parser := eintel.NewMessageParser(chat, location.Updates)
+	voice := eintel.NewVoiceReport(parser.Messages)
 
 	go chat.Run()
+	go location.Run()
+	go voice.Run()
 	parser.Run()
-
-	for message := range parser.Messages {
-		fmt.Printf("%v\n", message)
-	}
 
 }

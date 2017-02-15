@@ -9,117 +9,33 @@ FSD_PATH = SDE_PATH.join('fsd/universe')
 
 EMPTY =  ''.freeze
 
-System = Struct.new(:name, :region, :constelation)
-Constelation = Struct.new(:name, :region, :systems)
-Region = Struct.new(:name, :constelations, :systems)
+System = Struct.new(:name, :id)
 
-data = {
-  systems: {},
-  constelations: {},
-  regions: {}
-}
-
-regions = data[:regions]
-systems = data[:systems]
-constelations = data[:constelations]
+systems = {}
 
 TEMPLATES = {
-  regions: %{package universe
-
-func loadRegions() {
-  <% regions.each do |region| %>
-    Regions["<%= region.name %>"] = &Region{
-      Name: "<%= region.name %>",
-    }
-  <% end %>
-}
-},
-  constelations: %{package universe
-
-func loadConstelations() {
-  <% constelations.each do |constelation| %>
-    Constelations["<%= constelation.name %>"] = &Constelation{
-      Name: "<%= constelation.name%>",
-      Region: Regions["<%= constelation.region.name %>"],
-    }
-  <% end %>
-}
-},
   systems: %{package universe
+    func init() {
+      var system *System
 
-func loadSystems() {
-  <% systems.each do |system| %>
-    Systems["<%= system.name %>"] = &System{
-      Name: "<%= system.name%>",
-      Constelation: Constelations["<%= system.constelation.name %>"],
-      Region: Regions["<%= system.region.name %>"],
-    }
-  <% end %>
-}
-},
-  relations: %{package universe
-func loadRelations(){
-  <% regions.each do |region| %>
-    Regions["<%= region.name %>"].Systems = []*System{
-      <% region.systems.each do |system| %>
-        Systems["<%= system.name %>"],
+      <% systems.each do |system| %>
+        system = &System{Name: "<%= system.name%>", ID: "<%= system.id %>"}
+        Systems["<%= system.name %>"] = system
+        Systems["<%= system.id %>"] = system
       <% end %>
     }
-
-    Regions["<%= region.name %>"].Constelations = []*Constelation{
-      <% region.constelations.each do |constelation| %>
-        Constelations["<%= constelation.name %>"],
-      <% end %>
-    }
-  <% end %>
-  <% constelations.each do |constelation| %>
-    Constelations["<%= constelation.name %>"].Systems = []*System{
-      <% constelation.systems.each do |system| %>
-        Systems["<%= system.name %>"],
-      <% end %>
-    }
-  <% end %>
-}
-  },
-  init: %{package universe
-
-func Load() {
-  loadRegions()
-  loadConstelations()
-  loadSystems()
-  loadRelations()
-}
   }
-
 }.freeze
 
-require 'pry'
-Dir["#{FSD_PATH}/eve/*/*/*/solarsystem.staticdata"].each_with_object(data)\
-do |entry|
+Dir["#{FSD_PATH}/eve/*/*/*/solarsystem.staticdata"].each do |entry|
+  id = File.read(entry).scan(/solarSystemID: (\d+)/).flatten.first
   entry["#{FSD_PATH}/eve/"] = EMPTY
   parts = *entry.split('/')
 
-  region = parts[0]
-  constelation = parts[1]
   system = parts[2]
 
-  regions[region] ||= Region.new(region, [], [])
-  constelations[constelation] ||= Constelation.new(constelation, regions[region], []).tap do |object|
-    regions[region].constelations << object
-  end
-
-  systems[system] = System.new(
-    system,
-    regions[region],
-    constelations[constelation]
-  )
-  regions[region].systems << systems[system]
-  constelations[constelation].systems << systems[system]
+  systems[system] = System.new(system, id)
 end
-
-regions = data[:regions].values
-systems = data[:systems].values
-constelations = data[:constelations].values
 
 def render(what, context = {})
   require 'ostruct'
@@ -133,8 +49,4 @@ def render(what, context = {})
   end
 end
 
-render(:regions, regions: regions)
-render(:systems, systems: systems)
-render(:constelations, constelations: constelations)
-render(:relations, regions: regions, constelations: constelations)
-render(:init)
+render(:systems, systems: systems.values)

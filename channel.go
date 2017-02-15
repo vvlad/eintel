@@ -2,164 +2,133 @@ package eintel
 
 import (
 	"bufio"
-	"fmt"
+	// "fmt"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
-	"io"
 	"io/ioutil"
 	"os"
-	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"time"
 )
 
+type MessageProcessor interface {
+	Process(c *Channel, line string)
+}
+
+type WatchBehaviour int
+
+const (
+	Tail WatchBehaviour = iota
+	Replay
+)
+
 type Channel struct {
 	Name      string
-	directory string
-	messages  chan ChannelMessage
+	chat      *Chat
 	decoder   transform.Transformer
+	file      *os.File
+	fileName  string
+	seekPos   int64
+	Processor MessageProcessor
+	Behaviour WatchBehaviour
 }
 
 type ChannelMessage struct {
 	Channel string
 	Message string
+	TS      time.Time
+	Sender  string
 }
 
 var (
-	pollInterval = 200 * time.Millisecond
+	intelMessageFormat = regexp.MustCompile(`\[ (?P<date>\d+.\d+.\d+) (?P<time>\d+:\d+:\d+) \] (?P<name>.*?) > (?P<message>.*)`)
 )
 
-func NewChannel(directory string, name string, messages chan ChannelMessage) *Channel {
+func NewChannel(chat *Chat, name string) *Channel {
 	win16le := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
 	utf16bom := unicode.BOMOverride(win16le.NewDecoder())
 
 	return &Channel{
 		Name:      name,
-		directory: directory,
-		messages:  messages,
+		chat:      chat,
 		decoder:   utf16bom,
+		fileName:  "",
+		Processor: &intelProcessor{},
+		Behaviour: Tail,
 	}
+
 }
 
 func (c *Channel) Run() {
 
-	fileChanged := make(chan os.FileInfo)
-	monitorNewFile := make(chan os.FileInfo)
-	fileContentChanged := make(chan int64)
-	go c.monitorFileInfo(fileChanged)
-	go c.monitorFileSize(monitorNewFile, fileContentChanged)
-	var file os.FileInfo = nil
 	for {
-		select {
-		case currentFile := <-fileChanged:
-			file = currentFile
-			monitorNewFile <- file
-			fmt.Println("New file info for", c.Name)
-			break
-		case offset := <-fileContentChanged:
-			if file.Size() > offset {
-				c.ProcessChunk(file, offset)
+		if file, err := c.logFile(); err == nil {
+			reader := bufio.NewReader(transform.NewReader(file, c.decoder))
+			if data, err := ioutil.ReadAll(reader); err == nil && len(data) > 0 {
+				for _, line := range strings.Split(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if len(line) > 0 {
+						c.Processor.Process(c, line)
+					}
+				}
+				if stat, err := file.Stat(); err == nil {
+					c.seekPos = stat.Size()
+				}
 			}
-		}
-	}
-
-}
-
-func (c *Channel) monitorFileSize(fileChanged chan os.FileInfo, newOffset chan int64) {
-
-	var file os.FileInfo = nil
-	oldSize := int64(0)
-
-	for {
-		if newFile, ok := <-fileChanged; ok {
-			fmt.Println("File changed while monitoring size", c.Name)
-			var size = int64(0)
-			if file == nil {
-				size = 0 //= newFile.Size()
-			}
-			file = newFile
-			newOffset <- size
-			oldSize = size
-			continue
-		}
-
-		if file == nil {
-			time.Sleep(pollInterval)
-			continue
-		}
-
-		if stat, err := os.Stat(filepath.Join(c.directory, file.Name())); err == nil && oldSize != stat.Size() {
-			newOffset <- oldSize
-			oldSize = stat.Size()
-		}
-	}
-
-}
-
-func (c *Channel) monitorFileInfo(file chan os.FileInfo) {
-
-	var currentFile os.FileInfo = nil
-	var oldFile os.FileInfo = nil
-
-	for {
-		currentFile = c.latestFileRevision()
-		if oldFile == nil || oldFile.Name() != currentFile.Name() {
-			oldFile = currentFile
-			file <- currentFile
 		}
 		time.Sleep(pollInterval)
 	}
-
 }
 
-func (c *Channel) ProcessChunk(fileInfo os.FileInfo, offset int64) {
-	fullName := filepath.Join(c.directory, fileInfo.Name())
-	file, err := os.Open(fullName)
-	defer file.Close()
-	if err != nil {
-		return
-	}
+type intelProcessor struct {
+}
 
-	reader := bufio.NewReader(transform.NewReader(file, c.decoder))
-	file.Seek(offset, io.SeekStart)
+func (i *intelProcessor) Process(c *Channel, line string) {
+	matches := intelMessageFormat.FindStringSubmatch(line)
 
-	text, err := ioutil.ReadAll(reader)
-
-	for _, line := range strings.Split(string(text), `\r`) {
-		c.messages <- ChannelMessage{
+	if len(matches) > 0 {
+		c.chat.Messages <- ChannelMessage{
 			Channel: c.Name,
-			Message: line,
+			Message: matches[4],
+			Sender:  matches[3],
 		}
 	}
 
 }
 
-func (c *Channel) latestFileRevision() os.FileInfo {
-	files, err := ioutil.ReadDir(c.directory)
-	if err != nil {
-		return nil
+func (c *Channel) logFile() (*os.File, error) {
+
+	if fileName, err := c.chat.findChannelLog(c.Name); err == nil {
+		if info, err := os.Stat(fileName); err == nil {
+
+			firstTime := c.file == nil
+
+			if fileName != c.fileName {
+				if c.file != nil {
+					c.file.Close()
+				}
+				c.seekPos = 0
+
+				if c.file, err = os.Open(fileName); err != nil {
+					return nil, err
+				}
+
+				if firstTime && c.Behaviour == Tail {
+					c.seekPos = info.Size()
+				}
+				c.fileName = fileName
+			}
+			c.file.Seek(c.seekPos, os.SEEK_SET)
+
+		} else {
+			return nil, err
+		}
+
+	} else {
+		return nil, err
 	}
 
-	var latestFile os.FileInfo = nil
-	latestVersion := uint64(0)
-	for _, file := range files {
-		path := filepath.Join(c.directory, file.Name())
-		chanLogSpec := strings.TrimSuffix(file.Name(), filepath.Ext(path))
-		tokens := strings.Split(chanLogSpec, "_")
-		if len(tokens) != 3 || tokens[0] != c.Name {
-			continue
-		}
+	return c.file, nil
 
-		version, err := strconv.ParseUint(fmt.Sprintf("%s%s", tokens[1], tokens[2]), 10, 64)
-		if err != nil {
-			continue
-		}
-		if latestVersion < version {
-			latestVersion = version
-			latestFile = file
-		}
-	}
-
-	return latestFile
 }
