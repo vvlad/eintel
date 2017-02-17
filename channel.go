@@ -2,7 +2,7 @@ package eintel
 
 import (
 	"bufio"
-	// "fmt"
+	"fmt"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 	"io/ioutil"
@@ -117,6 +117,7 @@ func (c *Channel) logFile() (*os.File, error) {
 				if firstTime && c.Behaviour == Tail {
 					c.seekPos = info.Size()
 				}
+				fmt.Printf("Using file %s for %s\n", fileName, c.Name)
 				c.fileName = fileName
 			}
 			c.file.Seek(c.seekPos, os.SEEK_SET)

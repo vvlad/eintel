@@ -98,6 +98,7 @@ func isClearReport(text string) bool {
 func (m *messageParser) locationMonitor() {
 	for location := range m.LocationChanges {
 		m.currentLocation = location
+		fmt.Println("Channel changed to: ", location.Name)
 	}
 }
 

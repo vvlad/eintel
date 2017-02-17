@@ -5,6 +5,14 @@ import (
 	"github.com/vvlad/eintel"
 )
 
+var (
+	channels = []string{}
+)
+
+func init() {
+
+}
+
 func main() {
 
 	pflag.Parse()
