@@ -17,14 +17,15 @@ func main() {
 
 	pflag.Parse()
 
-	chat := eintel.NewChat("GOTG_Intel", "Private Chat (Yolla)")
+	chat := eintel.NewChat("GOTG_Intel", "Derzerek")
 	location := eintel.NewLocalWatcher(chat)
 	parser := eintel.NewMessageParser(chat, location.Updates)
-	voice := eintel.NewVoiceReport(parser.Messages)
+	voice := eintel.NewLinuxTTS(parser.Messages)
 
 	go chat.Run()
 	go location.Run()
 	go voice.Run()
+	voice.PlayText("EIntel online")
 	parser.Run()
 
 }

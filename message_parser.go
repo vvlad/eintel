@@ -11,16 +11,7 @@ var (
 	jumpAlert = 5
 )
 
-type IntelReport int
-
-const (
-	Unknown IntelReport = iota
-	Alert
-	Clear
-)
-
 type IntelMessage struct {
-	Type        IntelReport
 	Description string
 	Location    *universe.System
 }
@@ -57,18 +48,29 @@ func (m *messageParser) Run() {
 			}
 
 			location := formatLocation(system.Name)
-			if isClearReport(text) {
-				msg.Type = Clear
-				msg.Description = fmt.Sprintf("%s is clear", location)
-			} else {
-				msg.Type = Alert
-				jumps := fmt.Sprintf("%d jumps", jumpCount)
-				if jumpCount == 0 {
-					jumps = fmt.Sprintf("1 jump")
+			switch {
+			case contains(text, "clr", "clear"):
+				{
+					msg.Description = fmt.Sprintf("%s is clear", location)
+
 				}
-				msg.Description = fmt.Sprintf("Threat reported %s away in %s", jumps, location)
+			case jumpCount == 0:
+				{
+					msg.Description = "Thread in local. DOCK DOCK DOCK!!!"
+				}
+			case jumpCount == 1:
+				{
+					msg.Description = fmt.Sprintf("Thread one jump away in %s", location)
+				}
+			default:
+				{
+					msg.Description = fmt.Sprintf("Threat %d jumps away in %s", jumpCount, location)
+				}
 			}
 
+			if contains(text, "dock", "dck", "docked") {
+				msg.Description = fmt.Sprintf("Docked %s", msg.Description)
+			}
 			m.Messages <- msg
 		}
 	}
@@ -80,15 +82,17 @@ func formatLocation(name string) string {
 	if location[2] == "-"[0] {
 		location = name[0:4]
 	}
-	return strings.Replace(location, "-", "tac ", 1)
+	return strings.Replace(location, "-", " tac ", 1)
 }
 
-func isClearReport(text string) bool {
+func contains(text string, whats ...string) bool {
 	words := strings.Fields(strings.ToLower(text))
 
 	for _, word := range words {
-		if word == "clr" || word == "clear" {
-			return true
+		for _, what := range whats {
+			if strings.ToLower(word) == strings.ToLower(what) {
+				return true
+			}
 		}
 	}
 
@@ -97,14 +101,17 @@ func isClearReport(text string) bool {
 
 func (m *messageParser) locationMonitor() {
 	for location := range m.LocationChanges {
-		m.currentLocation = location
-		fmt.Println("Channel changed to: ", location.Name)
+		if location != nil {
+			m.currentLocation = location
+			fmt.Println("Channel changed to: ", location.Name)
+		}
 	}
 }
 
 func (m *messageParser) findSystem(line string) *universe.System {
 
 	for _, token := range strings.Fields(line) {
+		token := strings.Replace(token, "*", "", -1)
 		if system, ok := universe.Systems[token]; ok {
 			return system
 		}
