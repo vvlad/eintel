@@ -23,7 +23,6 @@ func speak(text string) []byte {
 		Config: aws.Config{Region: aws.String("eu-west-1")},
 	}))
 	svc := polly.New(sess)
-	fmt.Println(text)
 	params := &polly.SynthesizeSpeechInput{
 		OutputFormat: aws.String("ogg_vorbis"), // Required
 		TextType:     aws.String("ssml"),

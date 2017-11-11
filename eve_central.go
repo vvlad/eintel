@@ -18,13 +18,17 @@ var (
 	cache, cacheError = diskache.New(opts)
 )
 
+type KaelRoutes struct {
+  Count int `json:count`
+}
+
 func JumpCount(from, to string) int {
-	url := fmt.Sprintf("http://api.eve-central.com/api/route/from/%s/to/%s", from, to)
-	route := make([]interface{}, 0)
+	url := fmt.Sprintf("http://everest.kaelspencer.com/route/%s/%s/", from, to)
+	route := KaelRoutes{}
 
 	if response, err := getCached(url); err == nil {
 		json.NewDecoder(response).Decode(&route)
-		return len(route)
+		return route.Count
 	}
 
 	return 0
