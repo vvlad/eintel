@@ -2,7 +2,6 @@ package eintel
 
 import (
 	"github.com/vvlad/eintel/universe"
-	"log"
 	"regexp"
 	"strings"
 )
@@ -40,7 +39,7 @@ func NewIntelChannel(playerName string) *IntelChannel {
 func (i *IntelChannel) Run() {
 	for locationMessage := range i.Locations {
 		i.System = locationMessage.System
-		log.Printf("Intel now knows that %s is in %s", i.PlayerName, i.System.Name)
+		log.Noticef("Intel now knows that %s is in %s", i.PlayerName, i.System.Name)
 	}
 }
 
@@ -55,10 +54,11 @@ func (i *IntelChannel) ParseLine(line string) {
 		tokens = Filter(tokens, Without(StopWords...))
 		system := findSystem(tokens)
 		if system == nil {
+      log.Errorf("Unable to find system from %v", tokens)
 			return
 		}
 
-		tokens = Filter(tokens, Without(system.Name))
+		tokens = Filter(tokens, Without(strings.ToUpper(system.Name)))
 
 		message := IntelMessage{
 			PlayerName:    i.PlayerName,
@@ -68,7 +68,10 @@ func (i *IntelChannel) ParseLine(line string) {
 			Line:          line,
 		}
 		i.Messages <- message
-	}
+    log.Debugf("[%s] intel message delivered", i.PlayerName)
+	} else {
+    log.Errorf("[%s] line %s doesn't match pattern", i.PlayerName, line)
+  }
 }
 
 func RemoveArtefacts(word string) string {

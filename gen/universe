@@ -21,6 +21,7 @@ TEMPLATES = {
       <% systems.each do |system| %>
         system = &System{Name: "<%= system.name%>", ID: "<%= system.id %>"}
         Systems["<%= system.name %>"] = system
+        Systems["<%= system.name.upcase %>"] = system
         Systems["<%= system.id %>"] = system
       <% end %>
     }

@@ -12,7 +12,7 @@ const (
 	Replay
 )
 
-type ChannelParser interface {
+type ChannelProcessor interface {
 	UpdateInfo(info *ChannelInfo)
 	ParseLine(line string)
 }
@@ -20,10 +20,10 @@ type ChannelParser interface {
 type Channel struct {
 	info   *ChannelInfo
 	file   *ChannelFile
-	parser ChannelParser
+	parser ChannelProcessor
 }
 
-func NewChannel(info *ChannelInfo, parser ChannelParser) *Channel {
+func NewChannel(info *ChannelInfo, parser ChannelProcessor) *Channel {
 	parser.UpdateInfo(info)
 
 	channel := &Channel{
@@ -35,9 +35,11 @@ func NewChannel(info *ChannelInfo, parser ChannelParser) *Channel {
 }
 
 func (c *Channel) Resume() {
-	// if c.info.Name != "Local" {
-	//  c.file.Resume()
-	// }
+	if c.info.Name != "Local" {
+	 c.file.Resume()
+	} else {
+    c.NotifyChanges(c.info)
+  }
 }
 
 func (c *Channel) NotifyChanges(info *ChannelInfo) {
@@ -50,8 +52,10 @@ func (c *Channel) NotifyChanges(info *ChannelInfo) {
 
 	updates, err := c.file.ReadUpdates()
 	if err != nil {
+    log.Errorf("[%s] error %s while reading %s", info.PlayerName, err, info.Path)
 		return
 	}
+
 	for {
 		line, err := updates.ReadString('\n')
 		if err != nil {

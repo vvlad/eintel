@@ -1,14 +1,20 @@
 package eintel
 
-func contains(slice []string, item string) bool {
-	set := make(map[string]struct{}, len(slice))
-	for _, s := range slice {
-		set[s] = struct{}{}
-	}
+import (
+	"crypto/md5"
+	"encoding/hex"
+)
 
-	_, ok := set[item]
-	return ok
-}
+// func contains(slice []string, item string) bool {
+// 	set := make(map[string]struct{}, len(slice))
+// 	for _, s := range slice {
+// 		set[s] = struct{}{}
+// 	}
+//
+// 	_, ok := set[item]
+// 	return ok
+// }
+//
 
 func Map(vs []string, f func(string) string) []string {
 	vsm := make([]string, len(vs))
@@ -72,6 +78,12 @@ func Intersects(vs []string, t ...string) bool {
 		}
 	}
 	return false
+}
+
+func MD5Hash(text string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(text))
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 var StopWords = []string{

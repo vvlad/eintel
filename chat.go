@@ -5,7 +5,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/mattes/go-expand-tilde"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,6 +26,7 @@ type Chat struct {
 	threatAssement *ThreatAssement
 	intelMessages  chan IntelMessage
 	Locations      chan LocationMessage
+  players       []string
 }
 
 func NewChat(intel_messages chan IntelMessage) *Chat {
@@ -44,6 +44,7 @@ func NewChat(intel_messages chan IntelMessage) *Chat {
 		intelChannels: map[string]*IntelChannel{},
 		intelMessages: intel_messages,
 		Locations:     make(chan LocationMessage),
+    players:       []string{},
 	}
 
 }
@@ -71,9 +72,13 @@ func (c *Chat) broadcastIntelMessages(intel *IntelChannel) {
 	}
 }
 
+func (c *Chat) AddPlayer(name string) {
+  c.players = append(c.players, name)
+}
+
 func (c *Chat) Run() {
 
-	for id, info := range playerChannelsWithName(c.directory, "Local") {
+	for id, info := range loadChannelInfo(c.directory, "Local", c.players) {
 		parser := NewLocalChannel(info)
 		intel := NewIntelChannel(info.PlayerName)
 
@@ -86,7 +91,7 @@ func (c *Chat) Run() {
 	}
 
 	for _, name := range c.channels {
-		channels := playerChannelsWithName(c.directory, name)
+		channels := loadChannelInfo(c.directory, name, c.players)
 		for id, info := range channels {
 			if intel, ok := c.intelChannels[info.PlayerName]; ok {
 				player_channel := NewChannel(info, intel)
@@ -114,7 +119,7 @@ func (c *Chat) Run() {
 			case event := <-watcher.Events:
 				go c.distachToChannel(event)
 			case err := <-watcher.Errors:
-				log.Println("error:", err)
+				log.Errorf("error %v", err)
 			}
 		}
 	}()
@@ -133,11 +138,14 @@ func (c *Chat) distachToChannel(event fsnotify.Event) {
 	}
 
 	if channel, ok := c.knownChannels[info.Id]; ok {
+    //log.Debugf("chat dispactes message to %s", info.Id)
 		channel.NotifyChanges(info)
-	}
+	}else{
+    //log.Debugf("No channel found for %s", info.Id)
+  }
 }
 
-func playerChannelsWithName(directory, name string) (channels map[string]*ChannelInfo) {
+func loadChannelInfo(directory, name string, players []string) (channels map[string]*ChannelInfo) {
 	channels = map[string]*ChannelInfo{}
 	files, err := ioutil.ReadDir(directory)
 	if err != nil {
@@ -151,6 +159,11 @@ func playerChannelsWithName(directory, name string) (channels map[string]*Channe
 		if info.Name != name {
 			continue
 		}
+
+    if len(players) > 0 && !Include(players, info.PlayerName) {
+      continue
+    }
+
 		if existing, ok := channels[info.Id]; ok {
 			if existing.Version < info.Version {
 				channels[info.Id] = info

@@ -2,7 +2,6 @@ package eintel
 
 import (
 	"github.com/vvlad/eintel/universe"
-	"log"
 	"regexp"
 )
 
@@ -45,7 +44,7 @@ func (c *LocalChannel) broadCastSystemUpdate(info *ChannelInfo, system *universe
 	if info == nil || system == nil {
 		return
 	}
-	log.Printf("%s is in %s", info.PlayerName, system.Name)
+	log.Noticef("%s is in %s", info.PlayerName, system.Name)
 	c.Messages <- LocationMessage{
 		Player: info.PlayerName,
 		System: system,
