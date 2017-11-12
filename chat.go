@@ -2,112 +2,154 @@ package eintel
 
 import (
 	"errors"
-	"fmt"
 	"github.com/mattes/go-expand-tilde"
-	"io/ioutil"
+	"github.com/fsnotify/fsnotify"
+  "io/ioutil"
 	"os"
-	"path/filepath"
-	"regexp"
-	"strconv"
 	"time"
+  "log"
+  "path/filepath"
 )
 
 var (
 	pollInterval   = 1 * time.Second
-	chatLogPattern = regexp.MustCompile(`^(?P<name>.*?)_(?P<date>\d+)_(?P<time>\d+)\.txt$`)
 )
+
+type PlayerChanels map[string]*Channel
 
 type Chat struct {
 	lines     chan string
-	channels  []*Channel
-	Messages  chan ChannelMessage
-	Files     []os.FileInfo
+	channels  []string
+  knownChannels map[string]*Channel
 	directory string
+  localChannels map[string]*LocalChannel
+  intelChannels map[string]*IntelChannel
+  threatAssement *ThreatAssement
+  intelMessages chan IntelMessage
+  Locations chan LocationMessage
 }
 
-func NewChat(channelNames ...string) *Chat {
+func NewChat(intel_messages chan IntelMessage) *Chat {
 
 	directory, err := findChatLogsLocation()
 	if err != nil {
 		return nil
 	}
 
-	clw := &Chat{
-		Messages:  make(chan ChannelMessage),
+	return &Chat{
 		directory: directory,
-		Files:     make([]os.FileInfo, 0),
-		channels:  make([]*Channel, 0),
+		channels:  []string{},
+    knownChannels: map[string]*Channel {},
+    localChannels: map[string]*LocalChannel{},
+    intelChannels: map[string]*IntelChannel{},
+    intelMessages : intel_messages,
+    Locations: make(chan LocationMessage),
 	}
 
-	for _, name := range channelNames {
-		channel := NewChannel(clw, name)
-		clw.channels = append(clw.channels, channel)
-	}
-
-	return clw
 }
 
 var (
 	chatLogsLocations = []string{
-		// "~/Documents/EVE/logs/Chatlogs-debug/",
 		"~/Documents/EVE/logs/Chatlogs",
 	}
 )
 
+func (c *Chat) AddChannel(name string) {
+  c.channels = append(c.channels, name)
+}
+
+func (c *Chat) broadcastLocationChanges(local *LocalChannel, intel * IntelChannel) {
+  for message := range local.Messages {
+    intel.Locations <- message
+    //c.Locations <- message
+  }
+}
+
+
+func (c *Chat) broadcastIntelMessages(intel * IntelChannel) {
+  for message := range intel.Messages {
+  	c.intelMessages <- message
+  }
+}
+
 func (c *Chat) Run() {
-	runChannel := func(channel *Channel) {
-		channel.Run()
+
+  for id, info := range playerChannelsWithName(c.directory, "Local") {
+    parser := NewLocalChannel(info)
+    intel := NewIntelChannel(info.PlayerName)
+
+    go c.broadcastLocationChanges(parser, intel)
+    go c.broadcastIntelMessages(intel)
+
+    c.localChannels[info.PlayerName] = parser
+    c.intelChannels[info.PlayerName] = intel
+    c.knownChannels[id] = NewChannel(info, parser)
+  }
+
+  for _, name := range c.channels {
+    channels := playerChannelsWithName(c.directory, name)
+    for id, info := range channels {
+      if intel, ok := c.intelChannels[info.PlayerName]; ok {
+        player_channel := NewChannel(info, intel)
+        c.knownChannels[id] = player_channel
+      }
+    }
+
+  }
+
+  for _, channel := range c.knownChannels {
+    channel.Resume()
+  }
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	for _, channel := range c.channels {
-		go runChannel(channel)
-	}
+	defer watcher.Close()
 
-	c.pullDirectory()
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case event := <-watcher.Events: go c.distachToChannel(event)
+			case err := <-watcher.Errors: log.Println("error:", err)
+			}
+		}
+	}()
+
+	err = watcher.Add(c.directory)
+	if err != nil {
+		log.Fatal(err)
+	}
+	<-done
 }
 
-func (c *Chat) pullDirectory() {
-	for {
+func (c *Chat) distachToChannel(event fsnotify.Event) {
+  info := ChannelInfoFromFile(event.Name)
+  if info == nil { return }
 
-		if files, err := ioutil.ReadDir(c.directory); err == nil {
-			c.Files = files
-		}
-
-		time.Sleep(pollInterval * 20)
-	}
+  if channel, ok := c.knownChannels[info.Id] ; ok {
+    channel.NotifyChanges(info)
+  }
 }
 
-func (c *Chat) findChannelLog(name string) (string, error) {
-	var fileInfo os.FileInfo = nil
-	version := uint64(0)
-	for _, current := range c.Files {
+func playerChannelsWithName(directory, name string) (channels map[string]*ChannelInfo) {
+  channels = map[string]*ChannelInfo{}
+  files, err := ioutil.ReadDir(directory)
+  if err != nil { return }
+  for _, file := range files {
+    info := ChannelInfoFromFile(filepath.Join(directory, file.Name()))
+    if info == nil { continue }
+    if info.Name != name { continue }
+    if existing, ok := channels[info.Id]; ok {
+      if existing.Version < info.Version { channels[info.Id] = info }
+    } else {
+      channels[info.Id] = info
+    }
+  }
 
-		matches := chatLogPattern.FindAllStringSubmatch(current.Name(), -1)
-
-		if len(matches) != 1 {
-			continue
-		}
-
-		tokens := matches[0]
-		if tokens[1] != name {
-			continue
-		}
-		newVersion, err := strconv.ParseUint(fmt.Sprintf("%s%s", tokens[2], tokens[3]), 10, 64)
-
-		if err != nil {
-			continue
-		}
-		if version < newVersion {
-			version = newVersion
-			fileInfo = current
-		}
-	}
-
-	if fileInfo != nil {
-		return filepath.Join(c.directory, fileInfo.Name()), nil
-	} else {
-		return "", os.ErrNotExist
-	}
+  return
 }
 
 func findChatLogsLocation() (string, error) {
@@ -122,3 +164,4 @@ func findChatLogsLocation() (string, error) {
 	}
 	return "", errors.New("no chat location found")
 }
+

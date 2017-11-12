@@ -3,7 +3,7 @@
 package eintel
 
 import (
-  "fmt"
+//  "fmt"
   "github.com/krig/go-sox"
 )
 
@@ -25,11 +25,11 @@ func (v *ttsLinux) Run() {
 
   defer sox.Quit()
 
-	for msg := range v.messages {
-    err := PlayText(msg.Description)
-    if err != nil {
-      panic(fmt.Sprintf("%s \n\nPlease install vorbis-tools", err))
-    }
+	for _ = range v.messages {
+    // err := PlayText(msg.Description)
+    // if err != nil {
+    //   panic(fmt.Sprintf("%s \n\nPlease install vorbis-tools", err))
+    // }
 	}
 }
 

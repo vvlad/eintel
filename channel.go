@@ -1,20 +1,9 @@
 package eintel
 
 import (
-	"bufio"
-	"fmt"
-	"golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
-	"io/ioutil"
-	"os"
-	"regexp"
-	"strings"
-	"time"
+//  "log"
+  "strings"
 )
-
-type MessageProcessor interface {
-	Process(c *Channel, line string)
-}
 
 type WatchBehaviour int
 
@@ -23,113 +12,51 @@ const (
 	Replay
 )
 
+type ChannelParser interface{
+  UpdateInfo(info *ChannelInfo)
+  ParseLine(line string)
+}
+
 type Channel struct {
-	Name      string
-	chat      *Chat
-	decoder   transform.Transformer
-	file      *os.File
-	fileName  string
-	seekPos   int64
-	Processor MessageProcessor
-	Behaviour WatchBehaviour
+  info *ChannelInfo
+  file *ChannelFile
+  parser ChannelParser
 }
 
-type ChannelMessage struct {
-	Channel string
-	Message string
-	TS      time.Time
-	Sender  string
+func NewChannel(info *ChannelInfo, parser ChannelParser) *Channel {
+  parser.UpdateInfo(info)
+
+  channel := &Channel{
+    info: info,
+    file: NewChannelFile(info),
+    parser: parser,
+  }
+  return channel
 }
 
-var (
-	intelMessageFormat = regexp.MustCompile(`\[ (?P<date>\d+.\d+.\d+) (?P<time>\d+:\d+:\d+) \] (?P<name>.*?) > (?P<message>.*)`)
-)
-
-func NewChannel(chat *Chat, name string) *Channel {
-	win16le := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
-	utf16bom := unicode.BOMOverride(win16le.NewDecoder())
-
-	return &Channel{
-		Name:      name,
-		chat:      chat,
-		decoder:   utf16bom,
-		fileName:  "",
-		Processor: &intelProcessor{},
-		Behaviour: Tail,
-	}
-
+func (c *Channel) Resume() {
+  // if c.info.Name != "Local" {
+  //  c.file.Resume()
+  // }
 }
 
-func (c *Channel) Run() {
+func (c *Channel) NotifyChanges(info *ChannelInfo) {
 
-	for {
-		if file, err := c.logFile(); err == nil {
-			reader := bufio.NewReader(transform.NewReader(file, c.decoder))
-			if data, err := ioutil.ReadAll(reader); err == nil && len(data) > 0 {
-				for _, line := range strings.Split(string(data), "\n") {
-					line = strings.TrimSpace(line)
-					if len(line) > 0 {
-						c.Processor.Process(c, line)
-					}
-				}
-				if stat, err := file.Stat(); err == nil {
-					c.seekPos = stat.Size()
-				}
-			}
-		}
-		time.Sleep(pollInterval)
-	}
-}
+  if c.info.Path != info.Path {
+    c.info = info
+    c.parser.UpdateInfo(info)
+    c.file = NewChannelFile(info)
+  }
 
-type intelProcessor struct {
-}
-
-func (i *intelProcessor) Process(c *Channel, line string) {
-	matches := intelMessageFormat.FindStringSubmatch(line)
-
-	if len(matches) > 0 {
-		c.chat.Messages <- ChannelMessage{
-			Channel: c.Name,
-			Message: matches[4],
-			Sender:  matches[3],
-		}
-	}
-
-}
-
-func (c *Channel) logFile() (*os.File, error) {
-
-	if fileName, err := c.chat.findChannelLog(c.Name); err == nil {
-		if info, err := os.Stat(fileName); err == nil {
-
-			firstTime := c.file == nil
-
-			if fileName != c.fileName {
-				if c.file != nil {
-					c.file.Close()
-				}
-				c.seekPos = 0
-
-				if c.file, err = os.Open(fileName); err != nil {
-					return nil, err
-				}
-
-				if firstTime && c.Behaviour == Tail {
-					c.seekPos = info.Size()
-				}
-				fmt.Printf("Using file %s for %s\n", fileName, c.Name)
-				c.fileName = fileName
-			}
-			c.file.Seek(c.seekPos, os.SEEK_SET)
-
-		} else {
-			return nil, err
-		}
-
-	} else {
-		return nil, err
-	}
-
-	return c.file, nil
+  updates, err := c.file.ReadUpdates()
+  if err != nil { return }
+  for {
+    line, err := updates.ReadString('\n')
+    if err != nil { break }
+    line = strings.TrimSpace(line)
+    if len(line) > 0 {
+      c.parser.ParseLine(line)
+    }
+  }
 
 }

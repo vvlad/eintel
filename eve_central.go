@@ -3,7 +3,6 @@ package eintel
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/GitbookIO/diskache"
 	"io/ioutil"
@@ -19,8 +18,13 @@ var (
 )
 
 type KaelRoutes struct {
-  Count int `json:count`
+  Count int `json:"count"`
 }
+
+const (
+	UnknownNumberOfJumps = -1982
+  IrelevantNumberOfJumps = -999
+)
 
 func JumpCount(from, to string) int {
 	url := fmt.Sprintf("http://everest.kaelspencer.com/route/%s/%s/", from, to)
@@ -31,12 +35,10 @@ func JumpCount(from, to string) int {
 		return route.Count
 	}
 
-	return 0
-
+	return UnknownNumberOfJumps
 }
 
 func getCached(uri string) (*bytes.Reader, error) {
-
 	key := fmt.Sprintf("http:%s", uri)
 	if data, inCache := cache.Get(key); inCache {
 		return bytes.NewReader(data), nil
@@ -53,5 +55,4 @@ func getCached(uri string) (*bytes.Reader, error) {
 		cache.Set(key, data)
 		return bytes.NewReader(data), nil
 	}
-	return nil, errors.New("No Response")
 }
