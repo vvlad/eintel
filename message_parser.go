@@ -1,10 +1,10 @@
 package eintel
 
 import (
-	// "fmt"
-	// "github.com/ogier/pflag"
-  //"github.com/vvlad/eintel/universe"
-	// "strings"
+// "fmt"
+// "github.com/ogier/pflag"
+//"github.com/vvlad/eintel/universe"
+// "strings"
 )
 
 // var (

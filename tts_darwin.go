@@ -3,7 +3,7 @@
 package eintel
 
 import (
-//	"fmt"
+	//	"fmt"
 	"os/exec"
 )
 
@@ -26,7 +26,7 @@ func (v *ttsDarwin) Run() {
 
 func (v *ttsDarwin) PlayText(text string) {
 	if len(text) > 0 {
-		cmd := exec.Command("say", "-r","280",text)
+		cmd := exec.Command("say", "-r", "280", text)
 		cmd.Run()
 	}
 }

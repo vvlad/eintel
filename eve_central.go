@@ -18,12 +18,12 @@ var (
 )
 
 type KaelRoutes struct {
-  Count int `json:"count"`
+	Count int `json:"count"`
 }
 
 const (
-	UnknownNumberOfJumps = -1982
-  IrelevantNumberOfJumps = -999
+	UnknownNumberOfJumps   = -1982
+	IrelevantNumberOfJumps = -999
 )
 
 func JumpCount(from, to string) int {

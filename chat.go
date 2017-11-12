@@ -2,31 +2,31 @@ package eintel
 
 import (
 	"errors"
-	"github.com/mattes/go-expand-tilde"
 	"github.com/fsnotify/fsnotify"
-  "io/ioutil"
+	"github.com/mattes/go-expand-tilde"
+	"io/ioutil"
+	"log"
 	"os"
+	"path/filepath"
 	"time"
-  "log"
-  "path/filepath"
 )
 
 var (
-	pollInterval   = 1 * time.Second
+	pollInterval = 1 * time.Second
 )
 
 type PlayerChanels map[string]*Channel
 
 type Chat struct {
-	lines     chan string
-	channels  []string
-  knownChannels map[string]*Channel
-	directory string
-  localChannels map[string]*LocalChannel
-  intelChannels map[string]*IntelChannel
-  threatAssement *ThreatAssement
-  intelMessages chan IntelMessage
-  Locations chan LocationMessage
+	lines          chan string
+	channels       []string
+	knownChannels  map[string]*Channel
+	directory      string
+	localChannels  map[string]*LocalChannel
+	intelChannels  map[string]*IntelChannel
+	threatAssement *ThreatAssement
+	intelMessages  chan IntelMessage
+	Locations      chan LocationMessage
 }
 
 func NewChat(intel_messages chan IntelMessage) *Chat {
@@ -37,13 +37,13 @@ func NewChat(intel_messages chan IntelMessage) *Chat {
 	}
 
 	return &Chat{
-		directory: directory,
-		channels:  []string{},
-    knownChannels: map[string]*Channel {},
-    localChannels: map[string]*LocalChannel{},
-    intelChannels: map[string]*IntelChannel{},
-    intelMessages : intel_messages,
-    Locations: make(chan LocationMessage),
+		directory:     directory,
+		channels:      []string{},
+		knownChannels: map[string]*Channel{},
+		localChannels: map[string]*LocalChannel{},
+		intelChannels: map[string]*IntelChannel{},
+		intelMessages: intel_messages,
+		Locations:     make(chan LocationMessage),
 	}
 
 }
@@ -55,51 +55,50 @@ var (
 )
 
 func (c *Chat) AddChannel(name string) {
-  c.channels = append(c.channels, name)
+	c.channels = append(c.channels, name)
 }
 
-func (c *Chat) broadcastLocationChanges(local *LocalChannel, intel * IntelChannel) {
-  for message := range local.Messages {
-    intel.Locations <- message
-    //c.Locations <- message
-  }
+func (c *Chat) broadcastLocationChanges(local *LocalChannel, intel *IntelChannel) {
+	for message := range local.Messages {
+		intel.Locations <- message
+		//c.Locations <- message
+	}
 }
 
-
-func (c *Chat) broadcastIntelMessages(intel * IntelChannel) {
-  for message := range intel.Messages {
-  	c.intelMessages <- message
-  }
+func (c *Chat) broadcastIntelMessages(intel *IntelChannel) {
+	for message := range intel.Messages {
+		c.intelMessages <- message
+	}
 }
 
 func (c *Chat) Run() {
 
-  for id, info := range playerChannelsWithName(c.directory, "Local") {
-    parser := NewLocalChannel(info)
-    intel := NewIntelChannel(info.PlayerName)
+	for id, info := range playerChannelsWithName(c.directory, "Local") {
+		parser := NewLocalChannel(info)
+		intel := NewIntelChannel(info.PlayerName)
 
-    go c.broadcastLocationChanges(parser, intel)
-    go c.broadcastIntelMessages(intel)
+		go c.broadcastLocationChanges(parser, intel)
+		go c.broadcastIntelMessages(intel)
 
-    c.localChannels[info.PlayerName] = parser
-    c.intelChannels[info.PlayerName] = intel
-    c.knownChannels[id] = NewChannel(info, parser)
-  }
+		c.localChannels[info.PlayerName] = parser
+		c.intelChannels[info.PlayerName] = intel
+		c.knownChannels[id] = NewChannel(info, parser)
+	}
 
-  for _, name := range c.channels {
-    channels := playerChannelsWithName(c.directory, name)
-    for id, info := range channels {
-      if intel, ok := c.intelChannels[info.PlayerName]; ok {
-        player_channel := NewChannel(info, intel)
-        c.knownChannels[id] = player_channel
-      }
-    }
+	for _, name := range c.channels {
+		channels := playerChannelsWithName(c.directory, name)
+		for id, info := range channels {
+			if intel, ok := c.intelChannels[info.PlayerName]; ok {
+				player_channel := NewChannel(info, intel)
+				c.knownChannels[id] = player_channel
+			}
+		}
 
-  }
+	}
 
-  for _, channel := range c.knownChannels {
-    channel.Resume()
-  }
+	for _, channel := range c.knownChannels {
+		channel.Resume()
+	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -112,8 +111,10 @@ func (c *Chat) Run() {
 	go func() {
 		for {
 			select {
-			case event := <-watcher.Events: go c.distachToChannel(event)
-			case err := <-watcher.Errors: log.Println("error:", err)
+			case event := <-watcher.Events:
+				go c.distachToChannel(event)
+			case err := <-watcher.Errors:
+				log.Println("error:", err)
 			}
 		}
 	}()
@@ -126,30 +127,40 @@ func (c *Chat) Run() {
 }
 
 func (c *Chat) distachToChannel(event fsnotify.Event) {
-  info := ChannelInfoFromFile(event.Name)
-  if info == nil { return }
+	info := ChannelInfoFromFile(event.Name)
+	if info == nil {
+		return
+	}
 
-  if channel, ok := c.knownChannels[info.Id] ; ok {
-    channel.NotifyChanges(info)
-  }
+	if channel, ok := c.knownChannels[info.Id]; ok {
+		channel.NotifyChanges(info)
+	}
 }
 
 func playerChannelsWithName(directory, name string) (channels map[string]*ChannelInfo) {
-  channels = map[string]*ChannelInfo{}
-  files, err := ioutil.ReadDir(directory)
-  if err != nil { return }
-  for _, file := range files {
-    info := ChannelInfoFromFile(filepath.Join(directory, file.Name()))
-    if info == nil { continue }
-    if info.Name != name { continue }
-    if existing, ok := channels[info.Id]; ok {
-      if existing.Version < info.Version { channels[info.Id] = info }
-    } else {
-      channels[info.Id] = info
-    }
-  }
+	channels = map[string]*ChannelInfo{}
+	files, err := ioutil.ReadDir(directory)
+	if err != nil {
+		return
+	}
+	for _, file := range files {
+		info := ChannelInfoFromFile(filepath.Join(directory, file.Name()))
+		if info == nil {
+			continue
+		}
+		if info.Name != name {
+			continue
+		}
+		if existing, ok := channels[info.Id]; ok {
+			if existing.Version < info.Version {
+				channels[info.Id] = info
+			}
+		} else {
+			channels[info.Id] = info
+		}
+	}
 
-  return
+	return
 }
 
 func findChatLogsLocation() (string, error) {
@@ -164,4 +175,3 @@ func findChatLogsLocation() (string, error) {
 	}
 	return "", errors.New("no chat location found")
 }
-
